@@ -9,7 +9,6 @@ import           Control.Monad.Trans.Reader                 (ReaderT())
 import qualified Control.Monad.Trans.State.Lazy   as Lazy   (StateT())
 import qualified Control.Monad.Trans.State.Strict as Strict (StateT())
 import           Data.Bits                                  (bit, (.|.))
-import           Data.Functor                               (($>))
 import           Data.Foldable                              (asum, toList)
 import qualified Text.Parsec as Parsec                      (Stream, ParsecT())
 import           Text.Parser.Char                           (CharParsing(satisfy))
@@ -29,10 +28,10 @@ instance Braille Int where
 
 class CharParsing m => BrailleParsing m where
   brl :: Braille b => b -> m b
-  brl b = satisfy (== toChar b) $> b <?> [toChar b]
+  brl b = b <$ satisfy (== toChar b) <?> [toChar b]
 
   cells :: (Traversable t, Braille b) => t b -> m (t b)
-  cells bs = traverse brl bs <?> toList (fmap toChar bs)
+  cells bs = traverse brl bs <?> toList (toChar <$> bs)
 
 instance (BrailleParsing m, MonadPlus m) => BrailleParsing (IdentityT m) where
   brl = lift . brl
@@ -54,7 +53,7 @@ instance Parsec.Stream s m Char => BrailleParsing (Parsec.ParsecT s u m)
 instance BrailleParsing Trifecta.Parser
 
 digit :: (BrailleParsing m, Enum a, Num a) => m a
-digit = asum $ zipWith ($>) (map brl "⠚⠁⠃⠉⠙⠑⠋⠛⠓⠊") [0..]
+digit = asum $ zipWith (<$) [0..] $ brl <$> "⠚⠁⠃⠉⠙⠑⠋⠛⠓⠊"
 
 number :: (BrailleParsing m, Enum a, Num a) => m a
 number = brl '⠼' *> (foldl ((+) . (10 *)) 0 <$> some digit)
