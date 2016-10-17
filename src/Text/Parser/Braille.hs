@@ -12,7 +12,7 @@ import           Data.Bits                                  (bit, (.|.))
 import           Data.Foldable                              (asum, toList)
 import qualified Text.Parsec as Parsec                      (Stream, ParsecT())
 import           Text.Parser.Char                           (CharParsing(satisfy))
-import           Text.Parser.Combinators                    ((<?>))
+import           Text.Parser.Combinators                    (try, (<?>))
 import qualified Text.Trifecta as Trifecta                  (Parser)
 
 class Enum b => Braille b where
@@ -24,14 +24,15 @@ instance Braille Char where toChar = id
 instance Braille Int where
   toChar = toEnum . (+ 0x2800) . fromDecimal where
     fromDecimal 0 = 0
-    fromDecimal b = ((.|.) <$> bit.pred.snd <*> fromDecimal.fst) $ b `divMod` 10
+    fromDecimal b = ((.|.) <$> bit.pred.snd <*> fromDecimal.fst) $ b `quotRem` 10
+                 -- (| bit.pred.snd .|. fromDecimal.fst |) $ b `quotRem` 10
 
 class CharParsing m => BrailleParsing m where
   brl :: Braille b => b -> m b
   brl b = b <$ satisfy (== toChar b) <?> [toChar b]
 
   cells :: (Traversable t, Braille b) => t b -> m (t b)
-  cells bs = traverse brl bs <?> toList (toChar <$> bs)
+  cells bs = try $ traverse brl bs <?> toList (toChar <$> bs)
 
 instance (BrailleParsing m, MonadPlus m) => BrailleParsing (IdentityT m) where
   brl = lift . brl
@@ -52,8 +53,12 @@ instance (BrailleParsing m, MonadPlus m) => BrailleParsing (Strict.StateT s m) w
 instance Parsec.Stream s m Char => BrailleParsing (Parsec.ParsecT s u m)
 instance BrailleParsing Trifecta.Parser
 
-digit :: (BrailleParsing m, Enum a, Num a) => m a
-digit = asum $ zipWith (<$) [0..] $ brl <$> "⠚⠁⠃⠉⠙⠑⠋⠛⠓⠊"
+upperDigits :: String
+upperDigits = "⠚⠁⠃⠉⠙⠑⠋⠛⠓⠊"
+
+digit :: (BrailleParsing m, Enum a, Num a, Braille b, Foldable f)
+      => f b -> m a
+digit = asum . zipWith (<$) [0..] . map brl . toList
 
 number :: (BrailleParsing m, Enum a, Num a) => m a
-number = brl '⠼' *> (foldl ((+) . (10 *)) 0 <$> some digit)
+number = brl '⠼' *> (foldl ((+) . (10 *)) 0 <$> some (digit upperDigits))
